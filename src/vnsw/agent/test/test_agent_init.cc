@@ -10,10 +10,11 @@
 #include <cfg/cfg_init.h>
 
 #include <oper/operdb_init.h>
-#include <ksync/ksync_init.h>
-#include <ksync/test/ksync_test.h>
+#include <vrouter/ksync/ksync_init.h>
+#include <vrouter/ksync/test/ksync_test.h>
 #include <uve/agent_uve.h>
 #include <uve/test/agent_uve_test.h>
+#include <pkt/test/flow_table_test.h>
 
 #include "test_agent_init.h"
 TestAgentInit::TestAgentInit() : ContrailInitCommon() {
@@ -22,6 +23,8 @@ TestAgentInit::TestAgentInit() : ContrailInitCommon() {
 TestAgentInit::~TestAgentInit() {
     ksync_.reset();
     uve_.reset();
+    stats_collector_.reset();
+    flow_stats_collector_.reset();
 }
 
 void TestAgentInit::ProcessOptions
@@ -57,6 +60,7 @@ void TestAgentInit::ProcessComputeAddress(AgentParam *param) {
 void TestAgentInit::FactoryInit() {
     AgentObjectFactory::Register<AgentUveBase>(boost::factory<AgentUveBaseTest *>());
     AgentObjectFactory::Register<KSync>(boost::factory<KSyncTest *>());
+    AgentObjectFactory::Register<FlowTable>(boost::factory<FlowTableUnitTest *>());
 }
 
 // Create the basic modules for agent operation.
@@ -71,6 +75,18 @@ void TestAgentInit::CreateModules() {
     uve_.reset(AgentObjectFactory::Create<AgentUveBase>
                (agent(), AgentUveBase::kBandwidthInterval));
     agent()->set_uve(uve_.get());
+
+    stats_collector_.reset(new AgentStatsCollectorTest(
+                                *(agent()->event_manager()->io_service()),
+                                agent()));
+    agent()->set_stats_collector(stats_collector_.get());
+
+    flow_stats_collector_.reset(new FlowStatsCollector(
+                                    *(agent()->event_manager()->io_service()),
+                                    agent()->params()->flow_stats_interval(),
+                                    agent()->params()->flow_cache_timeout(),
+                                    uve_.get()));
+    agent()->set_flow_stats_collector(flow_stats_collector_.get());
 
     ksync_.reset(AgentObjectFactory::Create<KSync>(agent()));
     agent()->set_ksync(ksync_.get());
@@ -89,6 +105,18 @@ void TestAgentInit::KSyncShutdown() {
 void TestAgentInit::UveShutdown() {
     if (agent()->uve()) {
         agent()->uve()->Shutdown();
+    }
+}
+
+void TestAgentInit::StatsCollectorShutdown() {
+    if (agent()->stats_collector()) {
+        agent()->stats_collector()->Shutdown();
+    }
+}
+
+void TestAgentInit::FlowStatsCollectorShutdown() {
+    if (agent()->flow_stats_collector()) {
+        agent()->flow_stats_collector()->Shutdown();
     }
 }
 

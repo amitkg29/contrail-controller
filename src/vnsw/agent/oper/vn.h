@@ -39,15 +39,8 @@ struct VnIpam {
     VnIpam(const std::string& ip, uint32_t len, const std::string& gw,
            const std::string& dns, bool dhcp, std::string &name,
            const std::vector<autogen::DhcpOptionType> &dhcp_options,
-           const std::vector<autogen::RouteType> &host_routes)
-        : plen(len), installed(false), dhcp_enable(dhcp), ipam_name(name) {
-        boost::system::error_code ec;
-        ip_prefix = IpAddress::from_string(ip, ec);
-        default_gw = IpAddress::from_string(gw, ec);
-        dns_server = IpAddress::from_string(dns, ec);
-        oper_dhcp_options.set_options(dhcp_options);
-        oper_dhcp_options.set_host_routes(host_routes);
-    }
+           const std::vector<autogen::RouteType> &host_routes);
+
     bool IsV4() const {
         return ip_prefix.is_v4();
     }
@@ -60,36 +53,11 @@ struct VnIpam {
 
         return (plen < rhs.plen);
     }
-    Ip4Address GetBroadcastAddress() const {
-        if (ip_prefix.is_v4()) {
-            Ip4Address broadcast(ip_prefix.to_v4().to_ulong() | 
-                    ~(0xFFFFFFFF << (32 - plen)));
-            return broadcast;
-        } 
-        return Ip4Address(0);
-    }
-    Ip4Address GetSubnetAddress() const {
-        if (ip_prefix.is_v4()) {
-            return Address::GetIp4SubnetAddress(ip_prefix.to_v4(), plen);
-        }
-        return Ip4Address(0);
-    }
-    Ip6Address GetV6SubnetAddress() const {
-        if (ip_prefix.is_v6()) {
-            return Address::GetIp6SubnetAddress(ip_prefix.to_v6(), plen);
-        }
-        return Ip6Address();
-    }
+    Ip4Address GetBroadcastAddress() const;
+    Ip4Address GetSubnetAddress() const;
+    Ip6Address GetV6SubnetAddress() const;
 
-    bool IsSubnetMember(const IpAddress &ip) const {
-        if (ip_prefix.is_v4() && ip.is_v4()) {
-            return ((ip_prefix.to_v4().to_ulong() | ~(0xFFFFFFFF << (32 - plen))) == 
-                 (ip.to_v4().to_ulong() | ~(0xFFFFFFFF << (32 - plen))));
-        } else if (ip_prefix.is_v6() && ip.is_v6()) {
-            return IsIp6SubnetMember(ip.to_v6(), ip_prefix.to_v6(), plen);
-        }
-        return false;
-    }
+    bool IsSubnetMember(const IpAddress &ip) const;
 };
 
 // Per IPAM data of the VN
@@ -119,12 +87,13 @@ struct VnData : public AgentOperDBData {
            const uuid &mirror_acl_id, const uuid &mc_acl_id, 
            const std::vector<VnIpam> &ipam, const VnIpamDataMap &vn_ipam_data,
            int vxlan_id, int vnid, bool layer2_forwarding,
-           bool layer3_forwarding, bool admin_state) :
+           bool layer3_forwarding, bool admin_state, bool enable_rpf) :
         AgentOperDBData(NULL, NULL), name_(name), vrf_name_(vrf_name),
         acl_id_(acl_id), mirror_acl_id_(mirror_acl_id),
         mirror_cfg_acl_id_(mc_acl_id), ipam_(ipam), vn_ipam_data_(vn_ipam_data),
         vxlan_id_(vxlan_id), vnid_(vnid), layer2_forwarding_(layer2_forwarding),
-        layer3_forwarding_(layer3_forwarding), admin_state_(admin_state) {
+        layer3_forwarding_(layer3_forwarding), admin_state_(admin_state),
+        enable_rpf_(enable_rpf) {
     };
     virtual ~VnData() { }
 
@@ -140,6 +109,7 @@ struct VnData : public AgentOperDBData {
     bool layer2_forwarding_;
     bool layer3_forwarding_;
     bool admin_state_;
+    bool enable_rpf_;
 };
 
 class VnEntry : AgentRefCount<VnEntry>, public AgentOperDBEntry {
@@ -147,7 +117,7 @@ public:
     VnEntry(const boost::uuids::uuid &id) :
         AgentOperDBEntry(), uuid_(id), vxlan_id_(0), vnid_(0),
         layer2_forwarding_(true), layer3_forwarding_(true), admin_state_(true),
-        table_label_(0) { }
+        table_label_(0), enable_rpf_(true) { }
     virtual ~VnEntry() { }
 
     virtual bool IsLess(const DBEntry &rhs) const;
@@ -190,6 +160,7 @@ public:
     bool layer2_forwarding() const {return layer2_forwarding_;};
     bool layer3_forwarding() const {return layer3_forwarding_;};
     bool admin_state() const {return admin_state_;}
+    bool enable_rpf() const {return enable_rpf_;}
 
     AgentDBTable *DBToTable() const;
     uint32_t GetRefCount() const {
@@ -218,6 +189,7 @@ private:
     bool admin_state_;
     VxLanIdRef vxlan_id_ref_;
     uint32_t table_label_;
+    bool enable_rpf_;
     DISALLOW_COPY_AND_ASSIGN(VnEntry);
 };
 
@@ -245,7 +217,7 @@ public:
     void AddVn(const uuid &vn_uuid, const string &name, const uuid &acl_id,
                const string &vrf_name, const std::vector<VnIpam> &ipam,
                const VnData::VnIpamDataMap &vn_ipam_data, int vxlan_id,
-               bool admin_state);
+               bool admin_state, bool enable_rpf);
     void DelVn(const uuid &vn_uuid);
     VnEntry *Find(const uuid &vn_uuid);
     void UpdateVxLanNetworkIdentifierMode();

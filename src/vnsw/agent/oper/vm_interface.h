@@ -19,6 +19,7 @@ struct VmInterfaceIpAddressData;
 struct VmInterfaceOsOperStateData;
 struct VmInterfaceMirrorData;
 class OperDhcpOptions;
+class PathPreference;
 
 class LocalVmPortPeer;
 /////////////////////////////////////////////////////////////////////////////
@@ -66,14 +67,19 @@ public:
 
         bool operator() (const FloatingIp &lhs, const FloatingIp &rhs) const;
         bool IsLess(const FloatingIp *rhs) const;
-        void Activate(VmInterface *interface, bool force_update) const;
-        void DeActivate(VmInterface *interface) const;
+        void L3Activate(VmInterface *interface, bool force_update) const;
+        void L3DeActivate(VmInterface *interface) const;
+        void L2Activate(VmInterface *interface, bool force_update) const;
+        void L2DeActivate(VmInterface *interface) const;
+        void DeActivate(VmInterface *interface, bool l2) const;
+        void Activate(VmInterface *interface, bool force_update, bool l2) const;
 
         IpAddress floating_ip_;
         mutable VnEntryRef vn_;
         mutable VrfEntryRef vrf_;
         std::string vrf_name_;
         boost::uuids::uuid vn_uuid_;
+        mutable bool l2_installed_;
     };
     typedef std::set<FloatingIp, FloatingIp> FloatingIpSet;
 
@@ -367,6 +373,7 @@ public:
 
     const std::string GetAnalyzer() const; 
 
+    void SetPathPreference(PathPreference *pref, bool ecmp) const;
     void CopySgIdList(SecurityGroupList *sg_id_list) const;
     bool NeedMplsLabel() const;
     bool IsVxlanMode() const;
@@ -386,6 +393,7 @@ public:
     bool OnResyncServiceVlan(VmInterfaceConfigData *data);
     void UpdateAllRoutes();
 
+    bool IsL2Active() const;
     bool IsIpv6Active() const;
     bool NeedDevice() const;
     VmInterface::SubType sub_type() const {return sub_type_;}
@@ -416,7 +424,6 @@ public:
 
     void AllocL2MplsLabel(bool force_update, bool policy_change);
     void DeleteL2MplsLabel();
-    void AddL2Route();
     void UpdateL2(bool force_update);
     const AclDBEntry* vrf_assign_acl() const { return vrf_assign_acl_.get();}
     bool WaitForTraffic() const;
@@ -438,7 +445,6 @@ private:
     bool IsActive() const;
     bool IsIpv4Active() const;
     bool IsL3Active() const;
-    bool IsL2Active() const;
     bool PolicyEnabled() const;
     void UpdateL3Services(bool dhcp, bool dns);
     void AddRoute(const std::string &vrf_name, const IpAddress &ip,
@@ -482,8 +488,10 @@ private:
                   bool old_ipv6_active, const Ip6Address &old_v6_addr,
                   const Ip4Address &old_subnet, const uint8_t old_subnet_plen);
     void UpdateL2(bool old_l2_active, VrfEntry *old_vrf, int old_vxlan_id,
-                  bool force_update, bool policy_change);
-    void DeleteL2(bool old_l2_active, VrfEntry *old_vrf);
+                  bool force_update, bool policy_change,
+                  const Ip4Address &old_addr, const Ip6Address &old_v6_addr);
+    void DeleteL2(bool old_l2_active, VrfEntry *old_vrf,
+                  const Ip4Address &old_addr, const Ip6Address &old_v6_addr);
     void UpdateVxLan();
 
     void AllocL3MplsLabel(bool force_update, bool policy_change);
@@ -522,8 +530,9 @@ private:
     void UpdateMetadataRoute(bool old_ipv4_active, VrfEntry *old_vrf);
     void DeleteMetadataRoute(bool old_ipv4_active, VrfEntry *old_vrf,
                              bool old_need_linklocal_ip);
-    void UpdateFloatingIp(bool force_update, bool policy_change);
-    void DeleteFloatingIp();
+    void CleanupFloatingIpList();
+    void UpdateFloatingIp(bool force_update, bool policy_change, bool l2);
+    void DeleteFloatingIp(bool l2);
     void UpdateServiceVlan(bool force_update, bool policy_change);
     void DeleteServiceVlan();
     void UpdateStaticRoute(bool force_update, bool policy_change);
@@ -534,14 +543,18 @@ private:
     void DeleteSecurityGroup();
     void UpdateL2TunnelId(bool force_update, bool policy_change);
     void DeleteL2TunnelId();
-    void UpdateL2InterfaceRoute(bool old_l2_active, bool force_update);
-    void DeleteL2InterfaceRoute(bool old_l2_active, VrfEntry *old_vrf);
+    void UpdateL2InterfaceRoute(bool old_l2_active, bool force_update,
+                                VrfEntry *vrf,
+                                const Ip4Address &old_addr,
+                                const Ip6Address &old_v6_addr);
+    void DeleteL2InterfaceRoute(bool old_l2_active, VrfEntry *old_vrf,
+                                const Ip4Address &old_v4_addr,
+                                const Ip6Address &old_v6_addr);
 
     void DeleteL2Route(const std::string &vrf_name,
                        const MacAddress &mac);
     void UpdateVrfAssignRule();
     void DeleteVrfAssignRule();
-    void UpdateFipFamilyCount(const FloatingIp &fip);
 
     VmEntryRef vm_;
     VnEntryRef vn_;

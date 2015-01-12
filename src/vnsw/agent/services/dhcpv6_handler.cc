@@ -5,6 +5,7 @@
 #include "base/os.h"
 #include "vr_defs.h"
 #include "cmn/agent_cmn.h"
+#include "net/address_util.h"
 #include "oper/route_common.h"
 #include "pkt/pkt_init.h"
 #include "services/dhcpv6_proto.h"
@@ -611,6 +612,7 @@ uint16_t Dhcpv6Handler::FillDhcpResponse(const MacAddress &dest_mac,
     pkt_info_->ip6 = (struct ip6_hdr *)((char *)pkt_info_->eth + eth_len);
     pkt_info_->transp.udp = (udphdr *)(pkt_info_->ip6 + 1);
     dhcp_ = (Dhcpv6Hdr *)(pkt_info_->transp.udp + 1);
+    option_->SetDhcpOptionPtr((uint8_t *)dhcp_->options);
 
     uint16_t len = FillDhcpv6Hdr();
     len += sizeof(udphdr);

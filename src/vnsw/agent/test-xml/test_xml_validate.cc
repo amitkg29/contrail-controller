@@ -6,7 +6,6 @@
 #include <fstream>
 #include <pugixml/pugixml.hpp>
 #include <boost/uuid/uuid.hpp>
-#include <boost/uuid/string_generator.hpp>
 
 #include <test/test_cmn_util.h>
 #include <pkt/test/test_pkt_util.h>
@@ -130,7 +129,21 @@ bool AgentUtXmlValidate::Run() {
         TestClient::WaitForIdle();
         AgentUtXmlValidationNode *node = *it;
         cout << "Validating " << node->ToString() << endl;
-        WAIT_FOR(1000, 1000, (node->Validate() == true));
+        uint32_t i = 0;
+        bool ret = false;
+        while (i < node->wait_count()) {
+            TestClient::WaitForIdle();
+            if (node->Validate() == true) {
+                ret = true;
+                break;
+            }
+            usleep(node->sleep_time());
+            i++;
+        }
+        EXPECT_TRUE(ret);
+        if (ret == false) {
+            cout << "Failed validation of " << node->ToString() << endl;
+        }
     }
 
     return true;

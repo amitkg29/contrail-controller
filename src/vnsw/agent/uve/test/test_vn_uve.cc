@@ -9,7 +9,7 @@
 #include <controller/controller_init.h>
 #include <pkt/pkt_init.h>
 #include <services/services_init.h>
-#include <ksync/ksync_init.h>
+#include <vrouter/ksync/ksync_init.h>
 #include <cmn/agent_cmn.h>
 #include <base/task.h>
 #include <io/event_manager.h>
@@ -939,9 +939,8 @@ TEST_F(UveVnUveTest, VnThroughput) {
     EXPECT_EQ((size + 30), Agent::GetInstance()->interface_config_table()->
                                                  Size());
 
-    AgentUve *u = static_cast<AgentUve *>(Agent::GetInstance()->uve());
     AgentStatsCollectorTest *collector = static_cast<AgentStatsCollectorTest *>
-        (u->agent_stats_collector());
+        (Agent::GetInstance()->stats_collector());
     collector->Run();
     client->WaitForIdle();
     for (int i = 0; i < 30; i++) {

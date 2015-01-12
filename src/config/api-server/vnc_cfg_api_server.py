@@ -11,6 +11,8 @@ monkey.patch_all()
 from gevent import hub
 
 import sys
+reload(sys)
+sys.setdefaultencoding('UTF8')
 import re
 import logging
 import logging.config
@@ -1203,7 +1205,9 @@ class VncApiServer(VncApiServerGen):
         apiConfig.useragent = useragent
         apiConfig.user = request.headers.get('X-User-Name')
         apiConfig.project = request.headers.get('X-Project-Name')
-        apiConfig.domain = request.headers.get('X-Domain-Name')
+        apiConfig.domain = request.headers.get('X-Domain-Name', 'None')
+        if apiConfig.domain.lower() == 'none':
+            apiConfig.domain = 'default-domain'
         if int(request.headers.get('Content-Length', 0)) > 0:
             apiConfig.body = str(request.json)
     # end _set_api_audit_info

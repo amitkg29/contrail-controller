@@ -1779,12 +1779,10 @@ class DBInterface(object):
                     aap = AllowedAddressPair(subnet,
                                              address_pair['mac_address'], mode)
                     aap_array.append(aap)
+            aaps = AllowedAddressPairs()
             if aap_array:
-                aaps = AllowedAddressPairs()
                 aaps.set_allowed_address_pair(aap_array)
-                port_obj.set_virtual_machine_interface_allowed_address_pairs(aaps)
-            else:
-                port_obj.set_virtual_machine_interface_allowed_address_pairs(None)
+            port_obj.set_virtual_machine_interface_allowed_address_pairs(aaps)
 
         if 'fixed_ips' in port_q:
             net_id = (port_q.get('network_id') or
@@ -3414,6 +3412,18 @@ class DBInterface(object):
         net_obj = self._network_read(net_id)
         tenant_id = self._get_tenant_id_for_create(context, port_q);
         proj_id = str(uuid.UUID(tenant_id))
+
+        # if mac-address is specified, check against the exisitng ports
+        # to see if there exists a port with the same mac-address
+        if 'mac_address' in port_q:
+            ports = self._vnc_lib.virtual_machine_interfaces_list(
+                parent_id=proj_id, back_ref_id=net_id, detail=True)
+            for port in ports:
+                macs = port.get_virtual_machine_interface_mac_addresses()
+                for mac in macs.get_mac_address():
+                    if mac == port_q['mac_address']:
+                        raise self._raise_contrail_exception("MacAddressInUse",
+                            net_id=net_id, mac=port_q['mac_address'])
 
         # initialize port object
         port_obj = self._port_neutron_to_vnc(port_q, net_obj, CREATE)

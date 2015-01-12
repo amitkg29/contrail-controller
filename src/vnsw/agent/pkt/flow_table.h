@@ -48,9 +48,9 @@ struct AclFlowInfo;
 struct VnFlowInfo;
 struct IntfFlowInfo;
 struct VmFlowInfo;
-struct RouteFlowKey;
-struct RouteFlowInfo;
-class Inet4RouteUpdate;
+class RouteFlowUpdate;
+class InetRouteFlowUpdate;
+class EvpnRouteFlowUpdate;
 class FlowEntry;
 class FlowTable;
 class FlowTableKSyncEntry;
@@ -64,40 +64,6 @@ struct FlowTaskMsg : public InterTaskMsg {
     ~FlowTaskMsg() {}
 
     FlowEntryPtr fe_ptr;
-};
-
-struct RouteFlowKey {
-    RouteFlowKey() : vrf(-1), family(Address::INET), plen(0) {}
-
-    RouteFlowKey(uint32_t v, const Ip4Address &ipv4, uint8_t p) :
-        vrf(v), family(Address::INET), plen(p) {
-        ip = Address::GetIp4SubnetAddress(ipv4, plen);
-    }
-
-    RouteFlowKey(uint32_t v, const Ip6Address &ipv6, uint8_t p) :
-        vrf(v), family(Address::INET6), plen(p) {
-        assert(0);
-    }
-
-    RouteFlowKey(uint32_t v, const IpAddress &ip_p, uint8_t p) :
-        vrf(v), plen(p) {
-        if (ip_p.is_v4()) {
-            family = Address::INET;
-            ip = Address::GetIp4SubnetAddress(ip_p.to_v4(), plen);
-        } else if (ip_p.is_v6()) {
-            family = Address::INET6;
-            ip = Address::GetIp6SubnetAddress(ip_p.to_v6(), plen);
-        } else {
-            assert(0);
-        }
-    }
-
-    virtual ~RouteFlowKey() {}
-
-    uint32_t vrf;
-    Address::Family family; // address family
-    IpAddress ip;
-    uint8_t plen;
 };
 
 struct FlowKey {
@@ -244,17 +210,19 @@ struct MatchPolicy {
 };
 
 struct FlowData {
-    FlowData() : 
-        source_vn(""), dest_vn(""), source_sg_id_l(), dest_sg_id_l(),
-        flow_source_vrf(VrfEntry::kInvalidIndex),
+    FlowData() :
+        smac(), dmac(), source_vn(""), dest_vn(""), source_sg_id_l(),
+        dest_sg_id_l(), flow_source_vrf(VrfEntry::kInvalidIndex),
         flow_dest_vrf(VrfEntry::kInvalidIndex), match_p(), vn_entry(NULL),
         intf_entry(NULL), in_vm_entry(NULL), out_vm_entry(NULL),
         vrf(VrfEntry::kInvalidIndex),
         mirror_vrf(VrfEntry::kInvalidIndex), dest_vrf(),
         component_nh_idx((uint32_t)CompositeNH::kInvalidComponentNHIdx),
         nh_state_(NULL), source_plen(0), dest_plen(0), drop_reason(0),
-        vrf_assign_evaluated(false), pending_recompute(false) {}
+        vrf_assign_evaluated(false), pending_recompute(false), enable_rpf(true) {}
 
+    MacAddress smac;
+    MacAddress dmac;
     std::string source_vn;
     std::string dest_vn;
     SecurityGroupList source_sg_id_l;
@@ -288,6 +256,7 @@ struct FlowData {
     // on route add. key for the map is vrf and data is prefix length
     FlowRouteRefMap     flow_source_plen_map;
     FlowRouteRefMap     flow_dest_plen_map;
+    bool enable_rpf;
 };
 
 class FlowEntry {
@@ -326,7 +295,8 @@ class FlowEntry {
         IMPLICIT_DENY,
         DEFAULT_GW_ICMP_OR_DNS, /* DNS/ICMP pkt to/from default gateway */
         LINKLOCAL_FLOW, /* No policy applied for linklocal flow */
-        MULTICAST_FLOW /* No policy applied for multicast flow */
+        MULTICAST_FLOW, /* No policy applied for multicast flow */
+        NON_IP_FLOW,    /* Flow due to Layer2 forwarding */
     };
 
     static const uint32_t kInvalidFlowHandle=0xFFFFFFFF;
@@ -364,7 +334,7 @@ class FlowEntry {
     };
 
     bool ActionRecompute();
-    void UpdateKSync(const FlowTable* table);
+    void UpdateKSync(FlowTable* table);
     int GetRefCount() { return refcount_; }
     void MakeShortFlow(FlowShortReason reason);
     const FlowStats &stats() const { return stats_;}
@@ -373,8 +343,9 @@ class FlowEntry {
     const FlowData &data() const { return data_;}
     const uuid &flow_uuid() const { return flow_uuid_; }
     const uuid &egress_uuid() const { return egress_uuid_; }
+    bool l3_flow() const { return l3_flow_; }
     uint32_t flow_handle() const { return flow_handle_; }
-    void set_flow_handle(uint32_t flow_handle, const FlowTable* table);
+    void set_flow_handle(uint32_t flow_handle, FlowTable* table);
     FlowEntry * reverse_flow_entry() { return reverse_flow_entry_.get(); }
     const FlowEntry * reverse_flow_entry() const { return reverse_flow_entry_.get(); }
     void set_reverse_flow_entry(FlowEntry *reverse_flow_entry) {
@@ -412,8 +383,6 @@ class FlowEntry {
     void ResetStats();
     void set_deleted(bool deleted) { deleted_ = deleted; }
     bool deleted() { return deleted_; }
-    bool FlowSrcMatch(const RouteFlowKey &rkey) const;
-    bool FlowDestMatch(const RouteFlowKey &rkey) const;
     void SetAclAction(std::vector<AclAction> &acl_action_l) const;
     void UpdateReflexiveAction();
     const Interface *intf_entry() const { return data_.intf_entry.get();}
@@ -424,12 +393,18 @@ class FlowEntry {
     void SetAclFlowSandeshData(const AclDBEntry *acl,
             FlowSandeshData &fe_sandesh_data) const;
     void InitFwdFlow(const PktFlowInfo *info, const PktInfo *pkt,
-            const PktControlInfo *ctrl, const PktControlInfo *rev_ctrl);
-    void InitRevFlow(const PktFlowInfo *info,
-            const PktControlInfo *ctrl, const PktControlInfo *rev_ctrl);
+                     const PktControlInfo *ctrl,
+                     const PktControlInfo *rev_ctrl);
+    void InitRevFlow(const PktFlowInfo *info, const PktInfo *pkt,
+                     const PktControlInfo *ctrl,
+                     const PktControlInfo *rev_ctrl);
     void InitAuditFlow(uint32_t flow_idx);
-    void set_source_sg_id_l(SecurityGroupList &sg_l) { data_.source_sg_id_l = sg_l; }
-    void set_dest_sg_id_l(SecurityGroupList &sg_l) { data_.dest_sg_id_l = sg_l; }
+    void set_source_sg_id_l(const SecurityGroupList &sg_l) {
+        data_.source_sg_id_l = sg_l;
+    }
+    void set_dest_sg_id_l(const SecurityGroupList &sg_l) {
+        data_.dest_sg_id_l = sg_l;
+    }
     int linklocal_src_port() const { return linklocal_src_port_; }
     int linklocal_src_port_fd() const { return linklocal_src_port_fd_; }
     const std::string& acl_assigned_vrf() const;
@@ -447,6 +422,8 @@ class FlowEntry {
     }
     uint16_t short_flow_reason() const { return short_flow_reason_; }
     bool set_pending_recompute(bool value);
+    const MacAddress &smac() const { return data_.smac; }
+    const MacAddress &dmac() const { return data_.dmac; }
 private:
     friend class FlowTable;
     friend class FlowStatsCollector;
@@ -455,8 +432,9 @@ private:
     bool SetRpfNH(const AgentRoute *rt);
     bool InitFlowCmn(const PktFlowInfo *info, const PktControlInfo *ctrl,
                      const PktControlInfo *rev_ctrl);
-    void GetSourceRouteInfo(const InetUnicastRouteEntry *rt);
-    void GetDestRouteInfo(const InetUnicastRouteEntry *rt);
+    void GetSourceRouteInfo(const AgentRoute *rt);
+    void GetDestRouteInfo(const AgentRoute *rt);
+    void UpdateRpf();
 
     FlowKey key_;
     FlowData data_;
@@ -464,6 +442,7 @@ private:
     uuid flow_uuid_;
     //egress_uuid is used only during flow-export and applicable only for local-flows
     uuid egress_uuid_;
+    bool l3_flow_;
     uint32_t flow_handle_;
     FlowEntryPtr reverse_flow_entry_;
     FlowTableKSyncEntry *ksync_entry_;
@@ -499,8 +478,48 @@ struct FlowEntryCmp {
 
 typedef std::set<FlowEntryPtr, FlowEntryCmp> FlowEntryTree;
 
+struct RouteFlowKey {
+    RouteFlowKey() : vrf(-1), family(Address::INET), plen(0) {}
+
+    RouteFlowKey(uint32_t v, const Ip4Address &ipv4, uint8_t p) :
+        vrf(v), family(Address::INET), plen(p) {
+        ip = Address::GetIp4SubnetAddress(ipv4, plen);
+    }
+
+    RouteFlowKey(uint32_t v, const Ip6Address &ipv6, uint8_t p) :
+        vrf(v), family(Address::INET6), plen(p) {
+        assert(0);
+    }
+
+    RouteFlowKey(uint32_t v, const IpAddress &ip_p, uint8_t p) :
+        vrf(v), plen(p) {
+        if (ip_p.is_v4()) {
+            family = Address::INET;
+            ip = Address::GetIp4SubnetAddress(ip_p.to_v4(), plen);
+        } else if (ip_p.is_v6()) {
+            family = Address::INET6;
+            ip = Address::GetIp6SubnetAddress(ip_p.to_v6(), plen);
+        } else {
+            assert(0);
+        }
+    }
+
+    RouteFlowKey(uint32_t v, const MacAddress &addr) :
+        vrf(v), family(Address::ENET), ip(), plen(48) {
+    }
+    virtual ~RouteFlowKey() {}
+
+    bool FlowSrcMatch(const FlowEntry *key) const;
+    bool FlowDestMatch(const FlowEntry *key) const;
+
+    uint32_t vrf;
+    Address::Family family; // address family
+    IpAddress ip;
+    MacAddress mac;
+    uint8_t plen;
+};
+
 struct RouteFlowInfo {
-    RouteFlowInfo() {}
     RouteFlowInfo(const RouteFlowKey &r_key) : key(r_key) {}
     RouteFlowInfo(uint32_t v, const IpAddress &ip_p, uint8_t p) :
         key(v, ip_p, p) {}
@@ -528,8 +547,13 @@ struct RouteFlowInfo {
             i -= sizeof(route_info->key.family);
             if (route_info->key.family == Address::INET) {
                 return route_info->key.ip.to_v4().to_bytes()[i];
+            } else if (route_info->key.family == Address::INET6) {
+                return route_info->key.ip.to_v6().to_bytes()[i];
+            } else if (route_info->key.family == Address::ENET) {
+                return (route_info->key.mac.GetData())[i];
+            } else {
+                assert(0);
             }
-            return route_info->key.ip.to_v6().to_bytes()[i];
         }
     };
 
@@ -558,15 +582,17 @@ public:
     typedef std::pair<const VmEntry *, VmFlowInfo *> VmFlowPair;
 
     typedef Patricia::Tree<RouteFlowInfo, &RouteFlowInfo::node, RouteFlowInfo::KeyCmp> RouteFlowTree;
+    typedef boost::function<bool(FlowEntry *flow)> FlowEntryCb;
 
     struct VnFlowHandlerState : public DBState {
         AclDBEntryConstRef acl_;
         AclDBEntryConstRef macl_;
         AclDBEntryConstRef mcacl_;
+        bool enable_rpf_;
         VnFlowHandlerState(const AclDBEntry *acl, 
                            const AclDBEntry *macl,
-                           const AclDBEntry *mcacl) :
-           acl_(acl), macl_(macl), mcacl_(mcacl) { }
+                           const AclDBEntry *mcacl, bool enable_rpf) :
+           acl_(acl), macl_(macl), mcacl_(mcacl), enable_rpf_(enable_rpf) { }
         virtual ~VnFlowHandlerState() { }
     };
     struct VmIntfFlowHandlerState : public DBState {
@@ -581,7 +607,14 @@ public:
     struct VrfFlowHandlerState : public DBState {
         VrfFlowHandlerState() {}
         virtual ~VrfFlowHandlerState() {}
-        Inet4RouteUpdate *inet4_unicast_update_;
+
+        // Register to all the route tables of intrest
+        void Register(VrfEntry *vrf);
+        // Unregister from the route tables
+        void Unregister(VrfEntry *vrf);
+
+        InetRouteFlowUpdate *inet4_unicast_update_;
+        EvpnRouteFlowUpdate *evpn_update_;
     };
     struct RouteFlowHandlerState : public DBState {
         RouteFlowHandlerState(SecurityGroupList &sg_l) : sg_l_(sg_l) { }
@@ -630,14 +663,27 @@ public:
     }
 
     DBTableBase::ListenerId nh_listener_id();
+    AgentRoute *GetL2Route(const VrfEntry *entry, const MacAddress &mac,
+                           const IpAddress &ip_addr);
     AgentRoute *GetUcRoute(const VrfEntry *entry, const IpAddress &addr);
     static const SecurityGroupList &default_sg_list() {return default_sg_list_;}
     bool ValidFlowMove(const FlowEntry *new_flow,
                        const FlowEntry *old_flow) const;
+    void FlowExport(FlowEntry *flow, uint64_t diff_bytes, uint64_t diff_pkts);
+    virtual void DispatchFlowMsg(SandeshLevel::type level, FlowDataIpv4 &flow);
+    void IterateFlowInfoEntries(const RouteFlowKey &key, FlowEntryCb cb);
+    RouteFlowInfo *FindRouteFlowInfo(RouteFlowInfo *key);
+    void FlowRecompute(RouteFlowInfo *rt_info);
+
+    // Update flow port bucket information
+    void NewFlow(const FlowEntry *flow);
+    void DeleteFlow(const FlowEntry *flow);
     friend class FlowStatsCollector;
     friend class PktSandeshFlow;
     friend class FetchFlowRecord;
-    friend class Inet4RouteUpdate;
+    friend class RouteFlowUpdate;
+    friend class InetRouteFlowUpdate;
+    friend class EvpnRouteFlowUpdate;
     friend class NhState;
     friend class PktFlowInfo;
     friend void intrusive_ptr_release(FlowEntry *fe);
@@ -676,20 +722,18 @@ private:
     void IncrVnFlowCounter(VnFlowInfo *vn_flow_info, const FlowEntry *fe);
     void DecrVnFlowCounter(VnFlowInfo *vn_flow_info, const FlowEntry *fe);
     void ResyncVnFlows(const VnEntry *vn);
-    void FlowReCompute(const RouteFlowInfo &rt_key);
-    void FlowReComputeInternal(RouteFlowInfo *rt_info);
-    void ResyncRouteFlows(RouteFlowKey &key, SecurityGroupList &sg_l);
     void ResyncAFlow(FlowEntry *fe);
     void ResyncVmPortFlows(const VmInterface *intf);
     void ResyncRpfNH(const RouteFlowKey &key, const AgentRoute *rt);
-    void DeleteRouteFlows(const RouteFlowKey &key);
 
     void DeleteFlowInfo(FlowEntry *fe);
     void DeleteVnFlowInfo(FlowEntry *fe);
     void DeleteVmFlowInfo(FlowEntry *fe);
     void DeleteVmFlowInfo(FlowEntry *fe, const VmEntry *vm);
     void DeleteIntfFlowInfo(FlowEntry *fe);
-    void DeleteRouteFlowInfoInternal(FlowEntry *fe, RouteFlowKey &key);
+    void DeleteInetRouteFlowInfoInternal(FlowEntry *fe, RouteFlowKey &key);
+    void DeleteInetRouteFlowInfo(FlowEntry *fe);
+    void DeleteL2RouteFlowInfo(FlowEntry *fe);
     void DeleteRouteFlowInfo(FlowEntry *fe);
     void DeleteAclFlowInfo(const AclDBEntry *acl, FlowEntry* flow, const AclEntryIDList &id_list);
 
@@ -704,7 +748,9 @@ private:
     void AddVnFlowInfo(FlowEntry *fe);
     void AddVmFlowInfo(FlowEntry *fe);
     void AddVmFlowInfo(FlowEntry *fe, const VmEntry *vm);
-    void AddRouteFlowInfoInternal(FlowEntry *fe, RouteFlowKey &key);
+    void AddInetRouteFlowInfoInternal(FlowEntry *fe, RouteFlowKey &key);
+    void AddInetRouteFlowInfo(FlowEntry *fe);
+    void AddL2RouteFlowInfo(FlowEntry *fe);
     void AddRouteFlowInfo(FlowEntry *fe);
 
     void DeleteAclFlows(const AclDBEntry *acl);
@@ -712,6 +758,8 @@ private:
     bool Delete(FlowEntryMap::iterator &it, bool rev_flow);
 
     void UpdateReverseFlow(FlowEntry *flow, FlowEntry *rflow);
+    void SourceIpOverride(FlowEntry *flow, FlowDataIpv4 &s_flow);
+    void SetUnderlayInfo(FlowEntry *flow, FlowDataIpv4 &s_flow);
 
     DISALLOW_COPY_AND_ASSIGN(FlowTable);
 };
@@ -730,29 +778,125 @@ inline void intrusive_ptr_release(FlowEntry *fe) {
     }
 }
 
-class Inet4RouteUpdate {
+////////////////////////////////////////////////////////////////////////////
+// RouteFlowUpdate class responsible to keep flow in-sync with route
+// add/delete/change
+//
+// A RouteFlowUpdate entry is created for every Route table.
+// RouteFlowUpdate registers to route notifications and do the following
+//   - Tracks change of SG-List for a route entry
+//   - Tracks change of NH for a route entry
+// When a VRF entry is deleted, will start a DBTable walk and in the walk, 
+// will delete DBState for all entries in the table. The RouteFlowUpdate entry
+// itself is deleted at end of the walk
+//
+// Defines pure virtual methods for following
+// - Handle add of a new route
+// - Handle delte of a route
+// - Handle change in SG-List
+// - Handle change in NH for route
+////////////////////////////////////////////////////////////////////////////
+class RouteFlowUpdate {
 public:
+    // DBSTate to hold old values for SG-List and NH
     struct State : DBState {
         SecurityGroupList sg_l_;
         const NextHop* active_nh_;
         const NextHop* local_nh_;
     };
 
-    Inet4RouteUpdate(InetUnicastAgentRouteTable *rt_table);
-    Inet4RouteUpdate();
-    ~Inet4RouteUpdate();
-    void ManagedDelete();
-    static Inet4RouteUpdate *UnicastInit(InetUnicastAgentRouteTable *table);
-    void Unregister();
-    bool DeleteState(DBTablePartBase *partition, DBEntryBase *entry);
-    static void WalkDone(DBTableBase *partition, Inet4RouteUpdate *rt);
-private:
-    void UnicastNotify(DBTablePartBase *partition, DBEntryBase *e);
+    RouteFlowUpdate(AgentRouteTable *table);
+    virtual ~RouteFlowUpdate();
 
+    void set_dblistener_id(DBTableBase::ListenerId id) { id_ = id; }
+    DBTableBase::ListenerId dblistener_id() { return id_; }
+
+    void ManagedDelete();
+    void Notify(DBTablePartBase *partition, DBEntryBase *e);
+
+    static bool DeleteState(DBTablePartBase *partition, DBEntryBase *entry,
+                            RouteFlowUpdate *info);
+    static void WalkDone(DBTableBase *partition, RouteFlowUpdate *info);
+
+    virtual void TraceMsg(AgentRoute *route, const AgentPath *path,
+                          SecurityGroupList &sg_list) = 0;
+    virtual void RouteDel(AgentRoute *entry) = 0;
+    virtual void RouteAdd(AgentRoute *entry) = 0;
+    virtual void SgChange(AgentRoute *entry, SecurityGroupList &sg_list)
+        = 0;
+    virtual void NhChange(AgentRoute *entry, const NextHop *active_nh,
+                          const NextHop *local_nh) = 0;
+protected:
     DBTableBase::ListenerId id_;
-    InetUnicastAgentRouteTable *rt_table_;
-    bool marked_delete_;
-    LifetimeRef<Inet4RouteUpdate> table_delete_ref_;
+    AgentRouteTable *rt_table_;
+    bool rt_table_deleted_;
+    LifetimeRef<RouteFlowUpdate> table_delete_ref_;
+private:
+    DISALLOW_COPY_AND_ASSIGN(RouteFlowUpdate);
+};
+
+////////////////////////////////////////////////////////////////////////////
+// RouteFlowUpdate implementation for InetUnicast route tables
+//
+// RouteDel : Triggers re-evaluation of the flows. Flows can potentially use
+//            route with lower prefix-len
+// RouteAdd : Triggers re-evaluation of the flows. Finds the covering route
+//            (route with lower prefix). The new route can potentially change
+//            the route for flows associated with covering route. The flow
+//            re-evaluates all flows attached to lower prefix route.
+// SgChange : When SG-List for a flow changes, it can potentially change
+//            flow action. So, RESYNC's the flows
+// NhChange : Change of NH can potentially change RPF check for flows.
+//            Re-evaluates flows to re-compute RPF check.
+////////////////////////////////////////////////////////////////////////////
+class InetRouteFlowUpdate : public RouteFlowUpdate {
+public:
+    InetRouteFlowUpdate(AgentRouteTable *table) : RouteFlowUpdate(table) { }
+    virtual ~InetRouteFlowUpdate() { }
+
+    bool SgUpdate(FlowEntry *fe, FlowTable *table, RouteFlowKey &key,
+                  const SecurityGroupList &sg_list);
+
+    virtual void TraceMsg(AgentRoute *route, const AgentPath *path,
+                          SecurityGroupList &sg_list);
+    virtual void RouteDel(AgentRoute *entry);
+    virtual void RouteAdd(AgentRoute *entry);
+    virtual void SgChange(AgentRoute *entry, SecurityGroupList &sg_list);
+    virtual void NhChange(AgentRoute *entry, const NextHop *active_nh,
+                          const NextHop *local_nh);
+private:
+    DISALLOW_COPY_AND_ASSIGN(InetRouteFlowUpdate);
+};
+
+////////////////////////////////////////////////////////////////////////////
+// EvpnRouteFlowUpdate implementation for Evpn route tables
+//
+// RouteDel : Deletes the flows. Unlike Inet routes, flow cannot match other
+//            route to re-evaluate
+// RouteAdd : No-op
+// SgChange : When SG-List for a flow changes, it can potentially change
+//            flow action. So, RESYNC's the flows
+// NhChange : Change of NH can potentially change RPF check for flows.
+//            Re-evaluates flows to re-compute RPF check.
+////////////////////////////////////////////////////////////////////////////
+class EvpnRouteFlowUpdate : public RouteFlowUpdate {
+public:
+    EvpnRouteFlowUpdate(AgentRouteTable *table) : RouteFlowUpdate(table) { }
+    virtual ~EvpnRouteFlowUpdate() { }
+
+    bool SgUpdate(FlowEntry *fe, FlowTable *table, RouteFlowKey &key,
+                  const SecurityGroupList &sg_list);
+    bool DelEntry(FlowEntry *fe, FlowTable *table, RouteFlowKey &key);
+
+    virtual void TraceMsg(AgentRoute *route, const AgentPath *path,
+                          SecurityGroupList &sg_list);
+    virtual void RouteDel(AgentRoute *entry);
+    virtual void RouteAdd(AgentRoute *entry);
+    virtual void SgChange(AgentRoute *entry, SecurityGroupList &sg_list);
+    virtual void NhChange(AgentRoute *entry, const NextHop *active_nh,
+                          const NextHop *local_nh);
+private:
+    DISALLOW_COPY_AND_ASSIGN(EvpnRouteFlowUpdate);
 };
 
 class NhState : public DBState {

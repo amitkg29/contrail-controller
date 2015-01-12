@@ -70,7 +70,6 @@ public:
     virtual bool ReComputePathAdd(AgentPath *path);
     virtual bool EcmpAddPath(AgentPath *path);
     virtual bool EcmpDeletePath(AgentPath *path);
-    virtual bool is_multicast() const;
     void AppendEcmpPath(Agent *agent, AgentPath *path);
     void DeleteComponentNH(Agent *agent, AgentPath *path);
 
@@ -121,6 +120,9 @@ public:
     bool ipam_subnet_route() const {return ipam_subnet_route_;}
     void set_ipam_subnet_route(bool ipam_subnet_route) {
         ipam_subnet_route_ = ipam_subnet_route;}
+    bool proxy_arp() const {return proxy_arp_;}
+    void set_proxy_arp(bool proxy_arp) {
+        proxy_arp_ = proxy_arp;}
 
 private:
     friend class InetUnicastAgentRouteTable;
@@ -129,6 +131,7 @@ private:
     uint8_t plen_;
     Patricia::Node rtnode_;
     bool ipam_subnet_route_;
+    bool proxy_arp_;
     DISALLOW_COPY_AND_ASSIGN(InetUnicastRouteEntry);
 };
 

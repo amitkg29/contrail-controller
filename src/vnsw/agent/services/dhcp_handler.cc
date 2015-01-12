@@ -5,6 +5,7 @@
 #include "base/os.h"
 #include "vr_defs.h"
 #include "cmn/agent_cmn.h"
+#include "net/address_util.h"
 #include "oper/route_common.h"
 #include "oper/vn.h"
 #include "pkt/pkt_init.h"
@@ -371,7 +372,8 @@ bool DhcpHandler::HandleVmRequest() {
 
     // For VM interfaces in default VRF, if the config doesnt have IP address,
     // send the request to fabric
-    if (vm_itf_->vrf() && vm_itf_->do_dhcp_relay()) {
+    if (dhcp_proto->dhcp_relay_mode() &&
+        vm_itf_->vrf() && vm_itf_->do_dhcp_relay()) {
         RelayRequestToFabric();
         return true;
     }
@@ -439,11 +441,14 @@ bool DhcpHandler::HandleMessage() {
     switch (pkt_info_->ipc->cmd) {
         case DhcpProto::DHCP_VHOST_MSG:
             // DHCP message from DHCP server port that we listen on
-            return HandleDhcpFromFabric();
+            if (agent()->GetDhcpProto()->dhcp_relay_mode())
+                return HandleDhcpFromFabric();
 
         default:
             assert(0);
     }
+
+    return true;
 }
 
 // Handle any DHCP response coming from fabric for a request that we relayed

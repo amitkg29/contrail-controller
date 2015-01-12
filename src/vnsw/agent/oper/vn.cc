@@ -26,7 +26,9 @@
 #include <oper/mirror_table.h>
 #include <oper/agent_sandesh.h>
 #include <oper/oper_dhcp_options.h>
+#include <oper/physical_device_vn.h>
 #include <filter/acl.h>
+#include "net/address_util.h"
 
 using namespace autogen;
 using namespace std;
@@ -35,6 +37,53 @@ using boost::assign::map_list_of;
 using boost::assign::list_of;
 
 VnTable *VnTable::vn_table_;
+
+VnIpam::VnIpam(const std::string& ip, uint32_t len, const std::string& gw,
+               const std::string& dns, bool dhcp, std::string &name,
+               const std::vector<autogen::DhcpOptionType> &dhcp_options,
+               const std::vector<autogen::RouteType> &host_routes)
+        : plen(len), installed(false), dhcp_enable(dhcp), ipam_name(name) {
+    boost::system::error_code ec;
+    ip_prefix = IpAddress::from_string(ip, ec);
+    default_gw = IpAddress::from_string(gw, ec);
+    dns_server = IpAddress::from_string(dns, ec);
+    oper_dhcp_options.set_options(dhcp_options);
+    oper_dhcp_options.set_host_routes(host_routes);
+}
+
+Ip4Address VnIpam::GetBroadcastAddress() const {
+    if (ip_prefix.is_v4()) {
+        Ip4Address broadcast(ip_prefix.to_v4().to_ulong() | 
+                             ~(0xFFFFFFFF << (32 - plen)));
+        return broadcast;
+    } 
+    return Ip4Address(0);
+}
+
+Ip4Address VnIpam::GetSubnetAddress() const {
+    if (ip_prefix.is_v4()) {
+        return Address::GetIp4SubnetAddress(ip_prefix.to_v4(), plen);
+    }
+    return Ip4Address(0);
+}
+
+Ip6Address VnIpam::GetV6SubnetAddress() const {
+    if (ip_prefix.is_v6()) {
+        return Address::GetIp6SubnetAddress(ip_prefix.to_v6(), plen);
+    }
+    return Ip6Address();
+}
+
+bool VnIpam::IsSubnetMember(const IpAddress &ip) const {
+    if (ip_prefix.is_v4() && ip.is_v4()) {
+        return ((ip_prefix.to_v4().to_ulong() |
+                 ~(0xFFFFFFFF << (32 - plen))) == 
+                (ip.to_v4().to_ulong() | ~(0xFFFFFFFF << (32 - plen))));
+    } else if (ip_prefix.is_v6() && ip.is_v6()) {
+        return IsIp6SubnetMember(ip.to_v6(), ip_prefix.to_v6(), plen);
+    }
+    return false;
+}
 
 bool VnEntry::IsLess(const DBEntry &rhs) const {
     const VnEntry &a = static_cast<const VnEntry &>(rhs);
@@ -250,7 +299,7 @@ bool VnTable::VnEntryWalk(DBTablePartBase *partition, DBEntryBase *entry) {
         req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
         req.key.reset(key); 
         req.data.reset(NULL);
-        Agent::GetInstance()->vn_table()->Enqueue(&req); 
+        Enqueue(&req);
     }
     return true;
 }
@@ -258,6 +307,8 @@ bool VnTable::VnEntryWalk(DBTablePartBase *partition, DBEntryBase *entry) {
 void VnTable::VnEntryWalkDone(DBTableBase *partition) {
     walkid_ = DBTableWalker::kInvalidWalkerId;
     agent()->interface_table()->
+        UpdateVxLanNetworkIdentifierMode();
+    agent()->physical_device_vn_table()->
         UpdateVxLanNetworkIdentifierMode();
 }
 
@@ -367,6 +418,10 @@ bool VnTable::ChangeHandler(DBEntry *entry, const DBRequest *req) {
                               data->layer2_forwarding_, false);
     
 
+    if (vn->enable_rpf_ != data->enable_rpf_) {
+        vn->enable_rpf_ = data->enable_rpf_;
+        ret = true;
+    }
     return ret;
 }
 
@@ -484,6 +539,7 @@ bool VnTable::IFNodeToReq(IFMapNode *node, DBRequest &req) {
     int vxlan_id = properties.vxlan_network_identifier;
     bool layer2_forwarding = true;
     bool layer3_forwarding = true;
+    bool enable_rpf = true;
     boost::uuids::uuid u;
     CfgUuidSet(id_perms.uuid.uuid_mslong, id_perms.uuid.uuid_lslong, u);
 
@@ -491,6 +547,11 @@ bool VnTable::IFNodeToReq(IFMapNode *node, DBRequest &req) {
         (Agent::GetInstance()->simulate_evpn_tor())) {
         layer3_forwarding = false;
     }
+
+    if (properties.rpf == "disable") {
+        enable_rpf = false;
+    }
+
     VnKey *key = new VnKey(u);
     VnData *data = NULL;
     if (node->IsDeleted()) {
@@ -569,7 +630,7 @@ bool VnTable::IFNodeToReq(IFMapNode *node, DBRequest &req) {
         data = new VnData(node->name(), acl_uuid, vrf_name, mirror_acl_uuid, 
                           mirror_cfg_acl_uuid, vn_ipam, vn_ipam_data,
                           vxlan_id, vnid, layer2_forwarding, layer3_forwarding,
-                          id_perms.enable);
+                          id_perms.enable, enable_rpf);
         data->SetIFMapNode(agent(), node);
     }
 
@@ -617,13 +678,13 @@ void VnTable::AddVn(const uuid &vn_uuid, const string &name,
                     const uuid &acl_id, const string &vrf_name, 
                     const std::vector<VnIpam> &ipam,
                     const VnData::VnIpamDataMap &vn_ipam_data,
-                    int vxlan_id, bool admin_state) {
+                    int vxlan_id, bool admin_state, bool enable_rpf) {
     DBRequest req;
     VnKey *key = new VnKey(vn_uuid);
     VnData *data = new VnData(name, acl_id, vrf_name, nil_uuid(), 
                               nil_uuid(), ipam, vn_ipam_data,
                               vxlan_id, vxlan_id, true, true,
-                              admin_state);
+                              admin_state, enable_rpf);
  
     req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
     req.key.reset(key);
@@ -864,6 +925,9 @@ bool VnEntry::DBEntrySandesh(Sandesh *sresp, std::string &name)  const {
         VnSandeshData data;
         data.set_name(GetName());
         data.set_uuid(UuidToString(GetUuid()));
+        data.set_vxlan_id(GetVxLanId());
+        data.set_config_vxlan_id(vxlan_id_);
+        data.set_vn_id(vnid_);
         if (GetAcl()) {
             data.set_acl_uuid(UuidToString(GetAcl()->GetUuid()));
         } else {
@@ -919,6 +983,7 @@ bool VnEntry::DBEntrySandesh(Sandesh *sresp, std::string &name)  const {
         data.set_ipv4_forwarding(layer3_forwarding());
         data.set_layer2_forwarding(layer2_forwarding());
         data.set_admin_state(admin_state());
+        data.set_enable_rpf(enable_rpf());
 
         std::vector<VnSandeshData> &list =
             const_cast<std::vector<VnSandeshData>&>(resp->get_vn_list());

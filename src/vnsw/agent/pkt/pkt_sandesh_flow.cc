@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include <uve/agent_uve.h>
+#include <vrouter/flow_stats/flow_stats_collector.h>
 
 using boost::system::error_code;
 
@@ -84,7 +85,8 @@ using boost::system::error_code;
     }                                                                       \
     data.set_peer_vrouter(fe->peer_vrouter());                            \
     data.set_tunnel_type(fe->tunnel_type().ToString());                     \
-    data.set_underlay_source_port(fe->underlay_source_port())
+    data.set_underlay_source_port(fe->underlay_source_port()); \
+    data.set_enable_rpf(fe->data().enable_rpf);\
 
 
 const std::string PktSandeshFlow::start_key = "0:0:0:0:0.0.0.0:0.0.0.0";
@@ -393,10 +395,9 @@ void FetchFlowRecord::HandleRequest() const {
 // Sandesh interface to modify flow aging interval
 // Intended for use in testing only
 void FlowAgeTimeReq::HandleRequest() const {
-    AgentUveBase *uve = Agent::GetInstance()->uve();
-    AgentUve *f_uve = static_cast<AgentUve *>(uve);
+    Agent *agent = Agent::GetInstance();
 
-    FlowStatsCollector *collector = f_uve->flow_stats_collector();
+    FlowStatsCollector *collector = agent->flow_stats_collector();
 
     FlowAgeTimeResp *resp = new FlowAgeTimeResp();
     resp->set_old_age_time(collector->flow_age_time_intvl_in_secs());

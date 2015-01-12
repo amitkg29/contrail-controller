@@ -9,7 +9,6 @@
 #include <vector>
 #include <pugixml/pugixml.hpp>
 #include <boost/uuid/uuid.hpp>
-#include <boost/uuid/string_generator.hpp>
 
 #include <base/util.h>
 
@@ -34,7 +33,6 @@ public:
     virtual std::string NodeType();
     virtual void ToString(std::string *str);
     virtual bool Run();
-
 private:
     AgentUtXmlValidationList node_list_;
 };
@@ -55,6 +53,9 @@ public:
     bool delete_marked() const { return delete_marked_; }
     bool present() const { return present_; }
     const pugi::xml_node &node() const { return node_; }
+    virtual uint32_t wait_count() const { return 500; }
+    virtual uint32_t sleep_time() const { return 500; }
+
 private:
     std::string name_;
     pugi::xml_node node_;

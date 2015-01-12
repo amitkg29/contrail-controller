@@ -11,7 +11,7 @@
 #include <controller/controller_init.h>
 #include <pkt/pkt_init.h>
 #include <services/services_init.h>
-#include <ksync/ksync_init.h>
+#include <vrouter/ksync/ksync_init.h>
 #include <cmn/agent_cmn.h>
 #include <base/task.h>
 #include <io/event_manager.h>
@@ -818,6 +818,23 @@ TEST_F(CfgTest, l2_mode_configured_via_ipam_non_linklocal_gw) {
     DeleteVmportEnv(input, 1, 1, 0);
     client->WaitForIdle();
     WAIT_FOR(1000, 1000, (VrfFind("vrf1") == false));
+}
+
+TEST_F(CfgTest, RpfEnableDisable) {
+    AddVn("vn10", 10, true);
+    client->WaitForIdle();
+
+    VnEntry *vn = VnGet(10);
+    EXPECT_TRUE(vn->enable_rpf());
+
+    DisableRpf("vn10", 10);
+    EXPECT_FALSE(vn->enable_rpf());
+
+    EnableRpf("vn10", 10);
+    EXPECT_TRUE(vn->enable_rpf());
+
+    DelVn("vn10");
+    client->WaitForIdle();
 }
 
 int main(int argc, char **argv) {

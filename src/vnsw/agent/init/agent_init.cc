@@ -195,7 +195,26 @@ void AgentInit::InitModulesBase() {
     InitModules();
 }
 
+static void CreateVrfIndependentNextHop(Agent *agent) {
+
+    DiscardNH::Create();
+    DiscardNHKey key1;
+    NextHop *nh = static_cast<NextHop *>
+        (agent->nexthop_table()->FindActiveEntry(&key1));
+    agent->nexthop_table()->set_discard_nh(nh);
+
+    L2ReceiveNH::Create();
+    L2ReceiveNHKey key2;
+    nh = static_cast<NextHop *>
+                (agent->nexthop_table()->FindActiveEntry(&key2));
+    agent->nexthop_table()->set_l2_receive_nh(nh);
+}
+
 void AgentInit::CreateVrfBase() {
+    // Layer2 Receive routes are added on VRF creation. Ensure that Layer2
+    // Receive-NH which is independent of VRF is created first
+    CreateVrfIndependentNextHop(agent_.get());
+
     // Create the default VRF
     VrfTable *vrf_table = agent_->vrf_table();
 
@@ -212,12 +231,7 @@ void AgentInit::CreateVrfBase() {
 }
 
 void AgentInit::CreateNextHopsBase() {
-    DiscardNH::Create();
-
-    DiscardNHKey key;
-    NextHop *nh = static_cast<NextHop *>
-                (agent_->nexthop_table()->FindActiveEntry(&key));
-    agent_->nexthop_table()->set_discard_nh(nh);
+    CreateVrfIndependentNextHop(agent_.get());
     CreateNextHops();
 }
 
@@ -411,8 +425,28 @@ void AgentInit::UveShutdownBase() {
     return;
 }
 
+void AgentInit::StatsCollectorShutdownBase() {
+    StatsCollectorShutdown();
+    return;
+}
+
+void AgentInit::FlowStatsCollectorShutdownBase() {
+    FlowStatsCollectorShutdown();
+    return;
+}
+
 static bool UveShutdownInternal(AgentInit *init) {
     init->UveShutdownBase();
+    return true;
+}
+
+static bool StatsCollectorShutdownInternal(AgentInit *init) {
+    init->StatsCollectorShutdownBase();
+    return true;
+}
+
+static bool FlowStatsCollectorShutdownInternal(AgentInit *init) {
+    init->FlowStatsCollectorShutdownBase();
     return true;
 }
 
@@ -435,6 +469,10 @@ void AgentInit::Shutdown() {
     DeleteDBEntriesBase();
     WaitForDBEmpty();
     RunInTaskContext(this, task_id, boost::bind(&ServicesShutdownInternal,
+                                                this));
+    RunInTaskContext(this, task_id, boost::bind
+                     (&FlowStatsCollectorShutdownInternal, this));
+    RunInTaskContext(this, task_id, boost::bind(&StatsCollectorShutdownInternal,
                                                 this));
     RunInTaskContext(this, task_id, boost::bind(&UveShutdownInternal, this));
     RunInTaskContext(this, task_id, boost::bind(&PktShutdownInternal, this));

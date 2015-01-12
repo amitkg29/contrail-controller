@@ -187,11 +187,14 @@ void VNController::XmppServerDisConnect() {
     while (count < MAX_XMPP_SERVERS) {
         if ((cl = agent_->controller_ifmap_xmpp_client(count)) != NULL) {
             BgpPeer *peer = agent_->controller_xmpp_channel(count)->bgp_peer_id();
+            BgpPeer *evpn_peer = agent_->controller_xmpp_channel(count)->evpn_bgp_peer_id();
             // Sets the context of walk to decide on callback when walks are
             // done, setting to true results in callback of cleanup for
             // VNController once all walks are done for deleting peer info.
             if (peer)
                 peer->set_is_disconnect_walk(true);
+            if (evpn_peer)
+                evpn_peer->set_is_disconnect_walk(true);
             //shutdown triggers cleanup of routes learnt from
             //the control-node. 
             cl->Shutdown();
@@ -374,11 +377,15 @@ void VNController::ApplyDiscoveryXmppServices(std::vector<DSResponse> resp) {
              }
 
              if (it == AgentXmppChannelList.end()) {
-                 // not in list, cleanup
-                 CONTROLLER_TRACE(DiscoveryConnection,  "Cleanup Older Xmpp ",
-                     agent_->controller_ifmap_xmpp_server(idx), "");
-                 DisConnectControllerIfmapServer(idx);
-                 agent_->reset_controller_ifmap_xmpp_server(idx);
+                 // not in list, cleanup only if DOWN as new set of hints from
+                 // discovery shud take effect only if agent detects the server DOWN
+                 if (agent_->controller_xmpp_channel(idx)->GetXmppChannel()->
+                     GetPeerState() == xmps::NOT_READY) {
+                     CONTROLLER_TRACE(DiscoveryConnection,  "Cleanup Older Xmpp ",
+                         agent_->controller_ifmap_xmpp_server(idx), "");
+                     DisConnectControllerIfmapServer(idx);
+                     agent_->reset_controller_ifmap_xmpp_server(idx);
+                 }
             }
         }
     }
@@ -501,11 +508,15 @@ void VNController::ApplyDiscoveryDnsXmppServices(std::vector<DSResponse> resp) {
              }
 
              if (it == AgentDnsXmppChannelList.end()) {
-                 // not in list, cleanup
-                 CONTROLLER_TRACE(DiscoveryConnection,  "Cleanup Older Dns Xmpp ",
-                     agent_->dns_server(idx), "");
-                 DisConnectDnsServer(idx);
-                 agent_->reset_dns_server(idx);
+                 // not in list, cleanup only if DOWN as new set of hints from
+                 // discovery shud take effect only if agent detects the server DOWN
+                 if (agent_->dns_xmpp_channel(idx)->GetXmppChannel()->GetPeerState()
+                     == xmps::NOT_READY) {
+                     CONTROLLER_TRACE(DiscoveryConnection,  "Cleanup Older Dns Xmpp ",
+                         agent_->dns_server(idx), "");
+                     DisConnectDnsServer(idx);
+                     agent_->reset_dns_server(idx);
+                 }
             }
         }
     }

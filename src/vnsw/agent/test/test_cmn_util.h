@@ -65,6 +65,8 @@ bool VrfFind(const char *name, bool ret_del);
 VrfEntry *VrfGet(const char *name, bool ret_del=false);
 bool VnFind(int id);
 VnEntry *VnGet(int id);
+bool VxlanFind(int id);
+VxLanId *VxlanGet(int id);
 bool AclFind(int id);
 AclDBEntry *AclGet(int id);
 VmEntry *VmGet(int id);
@@ -123,6 +125,8 @@ void DeleteRoute(const char *vrf, const char *ip);
 bool RouteFind(const string &vrf_name, const Ip4Address &addr, int plen);
 bool RouteFind(const string &vrf_name, const string &addr, int plen);
 bool L2RouteFind(const string &vrf_name, const MacAddress &mac);
+bool L2RouteFind(const string &vrf_name, const MacAddress &mac,
+                 const IpAddress &ip);
 bool RouteFindV6(const string &vrf_name, const string &addr, int plen);
 bool RouteFindV6(const string &vrf_name, const Ip6Address &addr, int plen);
 bool MCRouteFind(const string &vrf_name, const Ip4Address &saddr,
@@ -136,6 +140,8 @@ InetUnicastRouteEntry *RouteGetV6(const string &vrf_name, const Ip6Address &addr
 Inet4MulticastRouteEntry *MCRouteGet(const string &vrf_name, const Ip4Address &grp_addr);
 Inet4MulticastRouteEntry *MCRouteGet(const string &vrf_name, const string &grp_addr);
 Layer2RouteEntry *L2RouteGet(const string &vrf_name, const MacAddress &mac);
+Layer2RouteEntry *L2RouteGet(const string &vrf_name, const MacAddress &mac,
+                             const IpAddress &ip_addr);
 bool TunnelNHFind(const Ip4Address &server_ip);
 bool TunnelNHFind(const Ip4Address &server_ip, bool policy, TunnelType::Type type);
 bool EcmpTunnelRouteAdd(const Peer *peer, const string &vrf_name, const Ip4Address &vm_ip,
@@ -145,7 +151,7 @@ bool EcmpTunnelRouteAdd(const Peer *peer, const string &vrf_name, const Ip4Addre
 bool Layer2TunnelRouteAdd(const Peer *peer, const string &vm_vrf,
                           TunnelType::TypeBmap bmap, const Ip4Address &server_ip,
                           uint32_t label, MacAddress &remote_vm_mac,
-                          const Ip4Address &vm_addr, uint8_t plen);
+                          const IpAddress &vm_addr, uint8_t plen);
 bool Inet4TunnelRouteAdd(const Peer *peer, const string &vm_vrf, const Ip4Address &vm_addr,
                          uint8_t plen, const Ip4Address &server_ip, TunnelType::TypeBmap bmap,
                          uint32_t label, const string &dest_vn_name,
@@ -303,6 +309,8 @@ void AddSubnetType(const char *name, int id, const char* addr, uint8_t);
 void AddActiveActiveInstanceIp(const char *name, int id, const char* addr);
 void DelInstanceIp(const char *name);
 extern Peer *bgp_peer_;
+VxLanId* GetVxLan(const Agent *agent, uint32_t vxlan_id);
+bool FindVxLanId(const Agent *agent, uint32_t vxlan_id);
 bool FindMplsLabel(MplsLabel::Type type, uint32_t label);
 MplsLabel *GetActiveLabel(MplsLabel::Type type, uint32_t label);
 uint32_t GetFlowKeyNH(int id);
@@ -394,5 +402,6 @@ void DeleteLogicalInterface(const char *name);
 PhysicalDevice *PhysicalDeviceGet(int id);
 PhysicalInterface *PhysicalInterfaceGet(const std::string &name);
 LogicalInterface *LogicalInterfaceGet(int id, const std::string &name);
-
+void EnableRpf(const std::string &vn_name, int vn_id);
+void DisableRpf(const std::string &vn_name, int vn_id);
 #endif // vnsw_agent_test_cmn_util_h

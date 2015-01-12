@@ -73,7 +73,8 @@ public:
                                            const Ip4Address *nexthop_ip,
                                            std::string vn,
                                            uint32_t mpls_label,
-                                           uint32_t tunnel_bmap);
+                                           uint32_t tunnel_bmap,
+                                          const SecurityGroupList *sg_list);
     static bool ControllerSendMcastRouteAdd(AgentXmppChannel *peer,
                                             AgentRoute *route);
     //Deletes to control node
@@ -112,6 +113,7 @@ public:
 
     Agent *agent() const {return agent_;}
     BgpPeer *bgp_peer_id() const {return bgp_peer_id_.get();}
+    BgpPeer *evpn_bgp_peer_id() const {return evpn_bgp_peer_id_.get();}
     std::string GetBgpPeerName() const;
     void UpdateConnectionInfo(xmps::PeerState state);
 
@@ -131,6 +133,7 @@ public:
     bool ControllerSendEvpnRouteCommon(AgentRoute *route,
                                        const Ip4Address *nexthop_ip,
                                        std::string vn,
+                                       const SecurityGroupList *sg_list,
                                        uint32_t mpls_label,
                                        uint32_t tunnel_bmap,
                                        bool associate);
@@ -147,7 +150,7 @@ private:
     void AddMulticastEvpnRoute(std::string vrf_name, MacAddress &mac,
 
                                autogen::EnetItemType *item);
-    void AddEvpnRoute(std::string vrf_name, std::string mac_addr,
+    void AddEvpnRoute(const std::string &vrf_name, std::string mac_addr,
                       autogen::EnetItemType *item);
     void AddRemoteRoute(std::string vrf_name, IpAddress ip, uint32_t plen,
                         autogen::ItemType *item);
@@ -158,6 +161,7 @@ private:
     std::string label_range_;
     uint8_t xs_idx_;
     boost::shared_ptr<BgpPeer> bgp_peer_id_;
+    boost::shared_ptr<BgpPeer> evpn_bgp_peer_id_;
     Agent *agent_;
     uint64_t unicast_sequence_number_;
 };

@@ -11,7 +11,7 @@
 #include <controller/controller_init.h>
 #include <pkt/pkt_init.h>
 #include <services/services_init.h>
-#include <ksync/ksync_init.h>
+#include <vrouter/ksync/ksync_init.h>
 #include <cmn/agent_cmn.h>
 #include <base/task.h>
 #include <io/event_manager.h>
@@ -292,14 +292,14 @@ TEST_F(CfgTest, CreateVrfNh_1) {
     NextHopKey *key = new VrfNHKey("test_vrf", false);
     req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
     req.key.reset(key);
-    req.data.reset(NULL);
+    req.data.reset(new VrfNHData(false));
     agent_->nexthop_table()->Enqueue(&req);
     client->WaitForIdle();
 
     key = new VrfNHKey("test_vrf", false);
     req.oper = DBRequest::DB_ENTRY_DELETE;
     req.key.reset(key);
-    req.data.reset(NULL);
+    req.data.reset(new VrfNHData(false));
     agent_->nexthop_table()->Enqueue(&req);
 
     VrfDelReq("test_vrf");
@@ -1988,10 +1988,11 @@ TEST_F(CfgTest, Nexthop_keys) {
                         vhost_intf_key, 0, false, "", SecurityGroupList());
     client->WaitForIdle();
 
+    Ip4Address vm_ip = Ip4Address::from_string("1.1.1.10");
     MacAddress remote_vm_mac("00:00:01:01:01:11");
     Layer2TunnelRouteAdd(agent_->local_peer(), "vrf10", TunnelType::MplsType(),
                          Ip4Address::from_string("10.1.1.100"),
-                         1000, remote_vm_mac, Ip4Address::from_string("1.1.1.10"), 32);
+                         1000, remote_vm_mac, vm_ip, 32);
     client->WaitForIdle();
     Layer2RouteEntry *l2_rt = L2RouteGet("vrf10", remote_vm_mac);
     EXPECT_TRUE(l2_rt != NULL);
@@ -2005,7 +2006,8 @@ TEST_F(CfgTest, Nexthop_keys) {
     tnh->SetKey(tnh->GetDBRequestKey().get());
     DoNextHopSandesh();
     Layer2AgentRouteTable::DeleteReq(agent_->local_peer(),
-                                     "vrf10", remote_vm_mac, 0, NULL);
+                                     "vrf10", remote_vm_mac, IpAddress(vm_ip),
+                                     0);
     client->WaitForIdle();
 
     //CompositeNHKey
@@ -2167,7 +2169,7 @@ TEST_F(CfgTest, Nexthop_invalid_vrf) {
     DBRequest vrf_nh_req;
     vrf_nh_req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
     vrf_nh_req.key.reset(new VrfNHKey("vrf11", true));
-    vrf_nh_req.data.reset(new VrfNHData());
+    vrf_nh_req.data.reset(new VrfNHData(false));
     agent_->nexthop_table()->Enqueue(&vrf_nh_req);
     client->WaitForIdle();
     VrfNHKey find_vrf_nh_key("vrf11", true);

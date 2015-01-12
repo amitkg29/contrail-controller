@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <boost/asio/ip/host_name.hpp>
 
 #include "analytics/viz_constants.h"
 #include "base/contrail_ports.h"
@@ -13,6 +14,7 @@
 #include "base/test/task_test_util.h"
 #include "query_engine/options.h"
 #include "io/event_manager.h"
+#include "net/address_util.h"
 
 using namespace std;
 using namespace boost::asio::ip;
@@ -75,7 +77,7 @@ TEST_F(OptionsTest, NoArguments) {
     EXPECT_EQ(options_.log_local(), false);
     EXPECT_EQ(options_.analytics_data_ttl(), ANALYTICS_DATA_TTL_DEFAULT);
     EXPECT_EQ(options_.start_time(), 0);
-    EXPECT_EQ(options_.max_tasks(), 16);
+    EXPECT_EQ(options_.max_tasks(), 0);
     EXPECT_EQ(options_.max_slice(), 100);
     EXPECT_EQ(options_.test_mode(), false);
 }
@@ -112,7 +114,7 @@ TEST_F(OptionsTest, DefaultConfFile) {
     EXPECT_EQ(options_.log_local(), true);
     EXPECT_EQ(options_.analytics_data_ttl(), ANALYTICS_DATA_TTL_DEFAULT);
     EXPECT_EQ(options_.start_time(), 0);
-    EXPECT_EQ(options_.max_tasks(), 16);
+    EXPECT_EQ(options_.max_tasks(), 0);
     EXPECT_EQ(options_.max_slice(), 100);
     EXPECT_EQ(options_.test_mode(), false);
 }
@@ -151,7 +153,7 @@ TEST_F(OptionsTest, OverrideStringFromCommandLine) {
     EXPECT_EQ(options_.log_local(), true);
     EXPECT_EQ(options_.analytics_data_ttl(), ANALYTICS_DATA_TTL_DEFAULT);
     EXPECT_EQ(options_.start_time(), 0);
-    EXPECT_EQ(options_.max_tasks(), 16);
+    EXPECT_EQ(options_.max_tasks(), 0);
     EXPECT_EQ(options_.max_slice(), 100);
     EXPECT_EQ(options_.test_mode(), false);
 }
@@ -190,7 +192,7 @@ TEST_F(OptionsTest, OverrideBooleanFromCommandLine) {
     EXPECT_EQ(options_.log_local(), true);
     EXPECT_EQ(options_.analytics_data_ttl(), ANALYTICS_DATA_TTL_DEFAULT);
     EXPECT_EQ(options_.start_time(), 0);
-    EXPECT_EQ(options_.max_tasks(), 16);
+    EXPECT_EQ(options_.max_tasks(), 0);
     EXPECT_EQ(options_.max_slice(), 100);
     EXPECT_EQ(options_.test_mode(), true); // Overridden from command line.
 }

@@ -10,7 +10,7 @@
 #include <controller/controller_init.h>
 #include <pkt/pkt_init.h>
 #include <services/services_init.h>
-#include <ksync/ksync_init.h>
+#include <vrouter/ksync/ksync_init.h>
 #include <cmn/agent_cmn.h>
 #include <base/task.h>
 #include <io/event_manager.h>
@@ -55,6 +55,11 @@ public:
             (Agent::GetInstance()->uve()->vrouter_uve_entry());
         CreateVmportEnv(input, 5);
         client->WaitForIdle();
+        WAIT_FOR(500, 1000, (VmPortActive(input, 0) == true));
+        WAIT_FOR(500, 1000, (VmPortActive(input, 1) == true));
+        WAIT_FOR(500, 1000, (VmPortActive(input, 2) == true));
+        WAIT_FOR(500, 1000, (VmPortActive(input, 3) == true));
+        WAIT_FOR(500, 1000, (VmPortActive(input, 4) == true));
         //Don't expect bitmaps to be reset on start of each test
         //Previous tests might have set some value.
         //EXPECT_TRUE(ValidateVrouter(0xFF, 0xFFFF, 0xFFFF));
@@ -264,15 +269,15 @@ public:
         flow->InitFwdFlow(&info, pkt, &ctrl, &ctrl);
     }
     void NewFlow(FlowEntry *f) {
-        AgentUveBase *uve = Agent::GetInstance()->uve();
-        AgentUve *f_uve = static_cast<AgentUve *>(uve);
-        f_uve->NewFlow(f);;
+        Agent *agent = Agent::GetInstance();
+        FlowTable *table = agent->pkt()->flow_table();
+        table->NewFlow(f);
     }
 
     void DeleteFlow(FlowEntry *f) {
-        AgentUveBase *uve = Agent::GetInstance()->uve();
-        AgentUve *f_uve = static_cast<AgentUve *>(uve);
-        f_uve->DeleteFlow(f);;
+        Agent *agent = Agent::GetInstance();
+        FlowTable *table = agent->pkt()->flow_table();
+        table->DeleteFlow(f);;
     }
 
 protected:

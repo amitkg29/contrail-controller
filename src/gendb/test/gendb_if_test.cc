@@ -4,14 +4,17 @@
 
 #include <algorithm>
 
+#include <boost/system/error_code.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/variant.hpp>
 
-#include "testing/gunit.h"
 
 #include <base/util.h>
 #include <base/logging.h>
+#include "base/string_util.h"
+
+#include "testing/gunit.h"
 
 typedef boost::variant<boost::blank, std::string, uint64_t, uint32_t,
     boost::uuids::uuid, uint8_t, uint16_t, double> DbTestVarVariant;
